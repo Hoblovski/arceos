@@ -20,7 +20,9 @@ fn make_root_node(p: &str) -> Rc<Node> {
     for ent in fs::read_dir(p).unwrap() {
         let ent = ent.unwrap();
         let path = ent.path();
-        let ent_md = fs::metadata(&path).unwrap();
+        let f = File::open(&path);
+        let f = f.unwrap();
+        let ent_md = f.metadata().unwrap();
         if ent_md.is_file() {
             chs.push(Node::n0(&ent.file_name()));
         } else if ent_md.is_dir() {
@@ -71,14 +73,14 @@ impl FuzzInputEntryType {
 
     fn weight(&self) -> usize {
         match self {
-            Self::Cwd => 2,
-            Self::Cd => 5,
-            Self::Mkdir => 0,
+            Self::Cwd => 1,
+            Self::Cd => 2,
+            Self::Mkdir => 4,
             Self::Rmdir => 0,
-            Self::Rm => 0,
-            Self::GetMetadata => 5,
-            Self::Open => 0,
-            Self::Create => 0,
+            Self::Rm => 4,
+            Self::GetMetadata => 1,
+            Self::Open => 4,
+            Self::Create => 4,
             Self::ReadFile => 0,
             Self::WriteFile => 0,
             Self::CloseFile => 0,
@@ -160,7 +162,9 @@ impl Fuzzer {
     }
 
     fn step_mkdir(&self) {
-        todo!()
+        let p = rand_str(randchr_lower, 5);
+        warn!("[fsfuzz] mkdir {p}");
+        fs::create_dir(&p);
     }
 
     fn step_rmdir(&self) {
@@ -168,7 +172,11 @@ impl Fuzzer {
     }
 
     fn step_rm(&self) {
-        todo!()
+        let p = self.root.rand_path();
+        let p = p.as_str();
+        warn!("[fsfuzz] rm {p}");
+        fs::remove_file(&p);
+        fs::remove_dir(&p);
     }
 
     fn step_getmetadata(&self) {
@@ -179,11 +187,16 @@ impl Fuzzer {
     }
 
     fn step_open(&self) {
-        todo!()
+        let p = self.root.rand_path();
+        let p = p.as_str();
+        warn!("[fsfuzz] open {p}");
+        File::open(&p);
     }
 
     fn step_create(&self) {
-        todo!()
+        let p = rand_str(randchr_lower, 5);
+        warn!("[fsfuzz] create {p}");
+        File::create_new(&p);
     }
 
     fn step_readfile(&self) {
