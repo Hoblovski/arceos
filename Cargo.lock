@@ -74,6 +74,7 @@ dependencies = [
  "axfs_vfs",
  "crate_interface",
  "libax",
+ "rand",
 ]
 
 [[package]]

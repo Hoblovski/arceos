@@ -8,7 +8,7 @@ pub use libax::{string::String, vec::Vec};
 
 /// SAFETY: this function is unsafe and racy but we dont care.
 pub fn rand_usize() -> usize {
-    static mut RNGST: usize = 0;
+    static mut RNGST: usize = crate::seed::INIT_SEED;
     unsafe {
         RNGST = RNGST.overflowing_mul(1289047261).0 + 121233897;
         RNGST

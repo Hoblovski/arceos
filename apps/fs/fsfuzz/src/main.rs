@@ -4,6 +4,7 @@
 
 mod node;
 mod prelude;
+mod seed;
 
 #[macro_use]
 extern crate libax;
