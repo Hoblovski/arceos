@@ -36,14 +36,19 @@ impl Node {
         })
     }
 
-    pub fn descend_path(self: &Rc<Self>, path: Path) -> Option<Rc<Node>> {
-        let mut cur = self;
-        for seg in path.0 {
-            let chidx = cur.chs.iter().position(|ch| ch.name == seg)?;
-            cur = &cur.chs[chidx];
-        }
-        Some(cur.clone())
-    }
+    /// Returns: (parent, idx, node). The parent can be used to remove the node.
+    // pub fn descend_path(self: &Rc<Self>, path: Path) -> Option<(Option<Rc<Node>>, Option<usize>, Rc<Node>)> {
+    //     let mut parent = None;
+    //     let mut idx = None;
+    //     let mut cur = self;
+    //     for seg in path.0 {
+    //         let chidx = cur.chs.iter().position(|ch| ch.name == seg)?;
+    //         parent = Some(cur.clone());
+    //         idx = Some(chidx);
+    //         cur = &cur.chs[chidx];
+    //     }
+    //     Some((parent, idx, cur.clone()))
+    // }
 
     fn descend_nth(self: &Rc<Self>, n: usize) -> Option<(Path, Rc<Node>)> {
         if n >= self.size {

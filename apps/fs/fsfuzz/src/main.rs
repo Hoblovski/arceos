@@ -77,13 +77,13 @@ impl FuzzInputEntryType {
             Self::Cd => 2,
             Self::Mkdir => 4,
             Self::Rmdir => 0,
-            Self::Rm => 4,
+            Self::Rm => 2,
             Self::GetMetadata => 1,
             Self::Open => 4,
             Self::Create => 4,
-            Self::ReadFile => 0,
-            Self::WriteFile => 0,
-            Self::CloseFile => 0,
+            Self::ReadFile => 2,
+            Self::WriteFile => 2,
+            Self::CloseFile => 4,
         }
     }
 
@@ -102,28 +102,29 @@ impl FuzzInputEntryType {
             FuzzInputEntryType::CloseFile,
         ];
         let mut weight_presum = vec![0];
-        weight_presum.extend(CANDIDATES.iter()
-            .map(|x| x.weight())
-            .scan(0, |acc, x| {
-                *acc += x;
-                Some(*acc)
-            }));
+        weight_presum.extend(CANDIDATES.iter().map(|x| x.weight()).scan(0, |acc, x| {
+            *acc += x;
+            Some(*acc)
+        }));
         let rand = rand_usize() % weight_presum.last().unwrap();
         let idx = weight_presum.iter().position(|x| rand < *x).unwrap();
         return CANDIDATES[idx - 1];
     }
 }
 
+const MAX_BUF: usize = 256;
 struct Fuzzer {
     root: Rc<Node>,
     nsteps: usize,
+    opened_files: Vec<(String, File)>,
 }
 
 impl Fuzzer {
     fn new() -> Self {
         Self {
             root: make_root_node("/"),
-            nsteps: 0
+            nsteps: 0,
+            opened_files: Vec::new(),
         }
     }
 
@@ -158,12 +159,15 @@ impl Fuzzer {
         let p = self.root.rand_path();
         let p = p.as_str();
         warn!("[fsfuzz] cd {p}");
-        libax::env::set_current_dir(&p);
+        let res = libax::env::set_current_dir(&p);
     }
 
     fn step_mkdir(&self) {
         let p = rand_str(randchr_lower, 5);
-        warn!("[fsfuzz] mkdir {p}");
+        warn!(
+            "[fsfuzz] mkdir {p} {{{}}}",
+            libax::env::current_dir().unwrap()
+        );
         fs::create_dir(&p);
     }
 
@@ -172,11 +176,12 @@ impl Fuzzer {
     }
 
     fn step_rm(&self) {
-        let p = self.root.rand_path();
-        let p = p.as_str();
+        let path = self.root.rand_path();
+        let p = path.as_str();
         warn!("[fsfuzz] rm {p}");
         fs::remove_file(&p);
         fs::remove_dir(&p);
+        // self.root.remove(path);
     }
 
     fn step_getmetadata(&self) {
@@ -186,29 +191,95 @@ impl Fuzzer {
         fs::metadata(&p);
     }
 
-    fn step_open(&self) {
+    fn step_open(&mut self) {
         let p = self.root.rand_path();
         let p = p.as_str();
+        let f = File::open(&p);
         warn!("[fsfuzz] open {p}");
-        File::open(&p);
+        let f = match f {
+            Ok(f) => f,
+            Err(e) => match e {
+                io::Error::NotFound => return,
+                _ => unreachable!("{:?}", e),
+            },
+        };
+        self.opened_files.push((p, f));
     }
 
-    fn step_create(&self) {
+    fn step_create(&mut self) {
+        // TODO: create file in other directories
         let p = rand_str(randchr_lower, 5);
+        let f = File::create_new(&p);
         warn!("[fsfuzz] create {p}");
-        File::create_new(&p);
+        let f = match f {
+            Ok(f) => f,
+            Err(e) => match e {
+                io::Error::NotFound => return,
+                io::Error::AlreadyExists => return,
+                io::Error::PermissionDenied => return,
+                _ => unreachable!("{:?}", e),
+            },
+        };
+        self.opened_files.push((p, f));
     }
 
-    fn step_readfile(&self) {
-        todo!()
+    fn step_readfile(&mut self) {
+        if self.opened_files.is_empty() {
+            return;
+        }
+        let idx = rand_usize() % self.opened_files.len();
+        let (path, file) = &mut self.opened_files[idx];
+        warn!("[fsfuzz] readfile {}", path);
+
+        let buflen = rand_usize_range(1, MAX_BUF);
+        let mut buf = vec![0_u8; buflen];
+        let res = file.read(buf.as_mut_slice());
+        match res {
+            Ok(res) => {
+                assert!(res <= buflen)
+            }
+            Err(e) => match e {
+                io::Error::IsADirectory => return,
+                e => {
+                    unreachable!("{:?}", e)
+                }
+            },
+        }
     }
 
-    fn step_writefile(&self) {
-        todo!()
+    fn step_writefile(&mut self) {
+        if self.opened_files.is_empty() {
+            return;
+        }
+        let idx = rand_usize() % self.opened_files.len();
+        let (path, file) = &mut self.opened_files[idx];
+        warn!("[fsfuzz] write {}", path);
+
+        let buflen = rand_usize_range(1, MAX_BUF);
+        let buf = rand_bytes(buflen);
+        let res = file.write(buf.as_slice());
+        match res {
+            Ok(res) => {
+                assert!(res <= buflen)
+            }
+            Err(e) => match e {
+                io::Error::PermissionDenied => {
+                    return;
+                    // TODO: check read/write perm
+                }
+                e => unreachable!("{:?}", e),
+            },
+        }
     }
 
-    fn step_closefile(&self) {
-        todo!()
+    fn step_closefile(&mut self) {
+        if self.opened_files.is_empty() {
+            return;
+        }
+        let idx = rand_usize() % self.opened_files.len();
+        let (path, file) = self.opened_files.remove(idx);
+        warn!("[fsfuzz] closefile {}", path);
+        drop(file);
     }
 }
 
